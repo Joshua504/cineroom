@@ -1,0 +1,7 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: #10131b; color: #edf1f7; font: 16px system-ui, sans-serif; }
+.shell { max-width: 1000px; margin: 0 auto; padding: 3rem 1rem; }
+header { margin-bottom: 2rem; } h1 { margin: 0; } h2 { margin-top: 0; }
+.panel { background: #1b2130; border: 1px solid #30394e; border-radius: 12px; padding: 1.25rem; margin: 1rem 0; }
+form { display: flex; gap: .75rem; flex-wrap: wrap; align-items: end; } label { display: grid; gap: .35rem; flex: 1 1 230px; }
+input { background: #10131b; color: inherit; border: 1px solid #53607a; border-radius: 6px; padding: .65rem; } button { cursor: pointer; background: #6c8cff; color: #fff; border: 0; border-radius: 6px; padding: .7rem 1rem; } button.secondary { background: #36405a; }.hidden { display: none; } video { width: 100%; background: #000; margin: 1rem 0; max-height: 65vh; }#notice { min-height: 1.4rem; color: #ffbf69; }#chat-log { height: 220px; overflow: auto; background:#10131b; padding:.75rem; margin-bottom:.75rem; border-radius:6px; }.message { margin:.35rem 0; }.room-grid,.history-grid { display:grid; grid-template-columns:2fr 1fr; gap:1rem; }#participants div { display:flex; gap:.5rem; align-items:center; margin:.35rem 0; }#participants button { padding:.35rem .6rem; }code { overflow-wrap:anywhere; }@media(max-width:650px){.room-grid,.history-grid{grid-template-columns:1fr}}

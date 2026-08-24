@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cineroom</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+<main class="shell">
+    <header><h1>Cineroom</h1><p>Private watch rooms for videos you own.</p></header>
+    <p id="notice" role="status"></p>
+    <section id="auth-panel" class="panel"><h2>Get started</h2><form id="auth-form"><label>Username <input id="username" type="text" minlength="3" maxlength="32" pattern="[a-z0-9_]+" autocomplete="username" placeholder="Required for a new account"></label><label>Email <input id="email" type="email" required></label><label>Password <input id="password" type="password" minlength="6" required></label><button name="action" value="register">Create account</button><button name="action" value="login" class="secondary">Sign in</button></form><form id="verify-form" class="hidden"><label>Verification code <input id="otp-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label><button>Verify account</button></form><p><a href="/api/auth/google">Continue with Google</a></p></section>
+    <section id="studio" class="panel hidden"><h2>Create a watch room</h2><p id="profile"></p><button id="logout" class="secondary">Sign out</button><form id="upload-form"><label>Upload MP4, WebM, or Ogg video <input id="video-file" type="file" accept="video/mp4,video/webm,video/ogg" required></label><button>Upload video</button></form><form id="room-form" class="hidden"><label>Room title <input id="room-title" maxlength="120" required></label><button>Create room</button></form><hr><form id="join-form"><label>Invite token <input id="invite-token" required></label><button class="secondary">Join room</button></form><div class="history-grid"><div><h3>Your videos</h3><div id="video-list"></div></div><div><h3>Your rooms</h3><div id="room-list"></div></div></div></section>
+    <section id="room" class="panel hidden"><h2 id="room-title-display"></h2><p>Share this invite token: <code id="invite-display"></code></p><video id="player" controls preload="metadata"></video><div class="room-grid"><div><h3>Live chat</h3><div id="chat-log" aria-live="polite"></div><form id="chat-form"><input id="chat-text" maxlength="1000" placeholder="Say something" required><button>Send</button></form></div><div><h3>Participants</h3><div id="participants"></div><button id="lock-room" class="secondary hidden"></button><h3>Connection</h3><p id="connection">Connecting…</p><button id="leave" class="secondary">Leave room</button></div></div></section>
+</main>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
