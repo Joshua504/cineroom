@@ -48,7 +48,16 @@ function connectSocket() {
     }
   };
   socket.onerror = () => notice("Live connection interrupted; reconnecting…");
-  socket.onmessage = ({data}) => { try { handleMessage(JSON.parse(data)); } catch { notice("Received an invalid room message."); } };
+  socket.onmessage = ({data}) => {
+    try {
+      const text = typeof data === "string" ? data : String(data);
+      const parsed = JSON.parse(text);
+      handleMessage(parsed);
+    } catch (err) {
+      console.error("Invalid WebSocket payload:", err, data);
+      notice(`Received an invalid room message. Raw payload: ${String(data).slice(0, 200)}`);
+    }
+  };
 }
 function send(type, extra = {}) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type, ...extra})); }
 function handleMessage(message) {

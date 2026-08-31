@@ -34,6 +34,12 @@ func Handle(hub *Hub, store *database.Store, userID, username string, allowedOri
 		return
 	}
 
+	origin := r.Header.Get("Origin")
+	if _, ok := allowedOrigins[origin]; !ok {
+		http.Error(w, "invalid origin", http.StatusForbidden)
+		return
+	}
+
 	localUpgrader := upgrader
 	localUpgrader.CheckOrigin = func(r *http.Request) bool { _, ok := allowedOrigins[r.Header.Get("Origin")]; return ok }
 	conn, err := localUpgrader.Upgrade(w, r, nil)

@@ -28,6 +28,8 @@ For production, set `APP_ORIGIN` to the HTTPS origin and register the correspond
 
 Password registration sends a six-digit code that expires after 10 minutes. Configure an SMTP server with `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM`. Accounts are not created until the code is verified.
 
+If `SMTP_HOST` is left empty, the app automatically runs in local development mode and prints the OTP to the server logs instead of trying to send an email. This is convenient for local work, but production deployments should still configure real SMTP credentials.
+
 For Gmail SMTP, enable 2-Step Verification, create a Google app password, then use `smtp.gmail.com`, port `587`, your Gmail address as `SMTP_USERNAME` and `SMTP_FROM`, and the app password as `SMTP_PASSWORD`.
 
 ## Docker

@@ -30,22 +30,22 @@ func (a *Application) homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Application) registerHandler(w http.ResponseWriter, r *http.Request) {
-	// check for temporary account lockout based on email
-	var pre struct{ Email string `json:"email"` }
-	_ = json.NewDecoder(r.Body).Decode(&pre)
-	// Reset body reader: handlers expect to re-decode the full body below; wrap by re-populating r.Body from the buffered bytes
-	// Simpler approach: re-open the body by reading it into memory
-	// Rewind is done by replacing r.Body after reading
-	
-	// Read full body for later decode
-	bodyBytes, _ := io.ReadAll(r.Body)
-	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	if pre.Email != "" && AuthBlocked(auth.NormalizeEmail(pre.Email)) {
-		writeError(w, http.StatusTooManyRequests, "account_locked", "too many failed attempts; try again later")
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body could not be read")
 		return
 	}
-	// restore body for normal processing
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	if len(bodyBytes) > 0 {
+		var pre struct{ Email string `json:"email"` }
+		if err := json.Unmarshal(bodyBytes, &pre); err == nil {
+			if emailKey := auth.NormalizeEmail(pre.Email); emailKey != "" && AuthBlocked(emailKey) {
+				writeError(w, http.StatusTooManyRequests, "account_locked", "too many failed attempts; try again later")
+				return
+			}
+		}
+	}
 
 	var input struct {
 		Email    string `json:"email"`
