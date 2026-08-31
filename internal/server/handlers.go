@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"bytes"
 
 	"github.com/Joshua504/cineroom/internal/auth"
 	"github.com/Joshua504/cineroom/internal/database"
@@ -29,6 +30,23 @@ func (a *Application) homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Application) registerHandler(w http.ResponseWriter, r *http.Request) {
+	// check for temporary account lockout based on email
+	var pre struct{ Email string `json:"email"` }
+	_ = json.NewDecoder(r.Body).Decode(&pre)
+	// Reset body reader: handlers expect to re-decode the full body below; wrap by re-populating r.Body from the buffered bytes
+	// Simpler approach: re-open the body by reading it into memory
+	// Rewind is done by replacing r.Body after reading
+	
+	// Read full body for later decode
+	bodyBytes, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	if pre.Email != "" && AuthBlocked(auth.NormalizeEmail(pre.Email)) {
+		writeError(w, http.StatusTooManyRequests, "account_locked", "too many failed attempts; try again later")
+		return
+	}
+	// restore body for normal processing
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
 	var input struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -81,12 +99,19 @@ func (a *Application) verifyRegistrationHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 	email := auth.NormalizeEmail(input.Email)
+	// check for account lockout
+	if AuthBlocked(email) {
+		writeError(w, http.StatusTooManyRequests, "account_locked", "too many failed attempts; try again later")
+		return
+	}
 	if len(input.Code) != 6 {
+		RecordAuthFailure(email)
 		writeError(w, http.StatusBadRequest, "invalid_code", "verification code must contain 6 digits")
 		return
 	}
 	pending, err := a.store.PendingRegistration(r.Context(), email)
 	if err != nil || time.Now().UTC().After(pending.ExpiresAt) || pending.CodeHash != a.otpHash(input.Code) {
+		RecordAuthFailure(email)
 		writeError(w, http.StatusUnauthorized, "invalid_code", "verification code is invalid or expired")
 		return
 	}
@@ -99,6 +124,17 @@ func (a *Application) verifyRegistrationHandler(w http.ResponseWriter, r *http.R
 	if err := a.auth.SetSession(w, auth.User{ID: user.ID, Email: user.Email, Username: user.Username}); err != nil {
 		writeError(w, http.StatusInternalServerError, "session_error", "could not create session")
 		return
+	}
+	// create refresh token
+	rTokenBytes := make([]byte, 32)
+	if _, err := rand.Read(rTokenBytes); err == nil {
+		rToken := fmt.Sprintf("%x", rTokenBytes)
+		h := sha256.Sum256([]byte(rToken))
+		tokenHash := fmt.Sprintf("%x", h[:])
+		expires := time.Now().UTC().Add(30 * 24 * time.Hour)
+		_ = a.store.CreateSession(r.Context(), uuid.NewString(), user.ID, tokenHash, expires)
+		cookie := &http.Cookie{Name: "cineroom_refresh", Value: rToken, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(a.config.AppOrigin, "https://"), SameSite: http.SameSiteLaxMode, Expires: expires}
+		http.SetCookie(w, cookie)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": user.ID, "email": user.Email, "username": user.Username})
 }
@@ -126,20 +162,87 @@ func (a *Application) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := a.store.UserByEmail(r.Context(), auth.NormalizeEmail(input.Email))
 	if err != nil || auth.CheckPassword(user.PasswordHash, input.Password) != nil {
+		// record auth failure against normalized email
+		RecordAuthFailure(auth.NormalizeEmail(input.Email))
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 		return
 	}
+	// successful login: clear failures
+	ResetAuthFailures(auth.NormalizeEmail(input.Email))
 	if err := a.auth.SetSession(w, auth.User{ID: user.ID, Email: user.Email, Username: user.Username}); err != nil {
 		writeError(w, http.StatusInternalServerError, "session_error", "could not create session")
 		return
+	}
+	// create refresh token (opaque) and store hashed in DB
+	rTokenBytes := make([]byte, 32)
+	if _, err := rand.Read(rTokenBytes); err == nil {
+		rToken := fmt.Sprintf("%x", rTokenBytes)
+		h := sha256.Sum256([]byte(rToken))
+		tokenHash := fmt.Sprintf("%x", h[:])
+		expires := time.Now().UTC().Add(30 * 24 * time.Hour)
+		_ = a.store.CreateSession(r.Context(), uuid.NewString(), user.ID, tokenHash, expires)
+		cookie := &http.Cookie{Name: "cineroom_refresh", Value: rToken, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(a.config.AppOrigin, "https://"), SameSite: http.SameSiteLaxMode, Expires: expires}
+		http.SetCookie(w, cookie)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "username": user.Username})
 }
 
 func (a *Application) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	// clear access cookie
 	a.auth.ClearSession(w)
+	// clear refresh cookie and delete session if present
+	if cookie, err := r.Cookie("cineroom_refresh"); err == nil && cookie.Value != "" {
+		h := sha256.Sum256([]byte(cookie.Value))
+		tokenHash := fmt.Sprintf("%x", h[:])
+		_ = a.store.DeleteSessionByHash(r.Context(), tokenHash)
+		// clear cookie
+		http.SetCookie(w, &http.Cookie{Name: "cineroom_refresh", Value: "", Path: "/", HttpOnly: true, Secure: strings.HasPrefix(a.config.AppOrigin, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (a *Application) refreshHandler(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("cineroom_refresh")
+	if err != nil || cookie.Value == "" {
+		writeError(w, http.StatusUnauthorized, "invalid_refresh", "refresh token missing")
+		return
+	}
+	h := sha256.Sum256([]byte(cookie.Value))
+	tokenHash := fmt.Sprintf("%x", h[:])
+	_, userID, expires, err := a.store.SessionByTokenHash(r.Context(), tokenHash)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid_refresh", "refresh token invalid")
+		return
+	}
+	if time.Now().UTC().After(expires) {
+		_ = a.store.DeleteSessionByHash(r.Context(), tokenHash)
+		writeError(w, http.StatusUnauthorized, "expired_refresh", "refresh token expired")
+		return
+	}
+	user, err := a.store.UserByID(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid_refresh", "user not found")
+		return
+	}
+	// create new access token
+	if err := a.auth.SetSession(w, auth.User{ID: user.ID, Email: user.Email, Username: user.Username}); err != nil {
+		writeError(w, http.StatusInternalServerError, "session_error", "could not create session")
+		return
+	}
+	// rotate refresh token: delete old and create new
+	_ = a.store.DeleteSessionByHash(r.Context(), tokenHash)
+	rTokenBytes := make([]byte, 32)
+	if _, err := rand.Read(rTokenBytes); err == nil {
+		rToken := fmt.Sprintf("%x", rTokenBytes)
+		h2 := sha256.Sum256([]byte(rToken))
+		tokenHash2 := fmt.Sprintf("%x", h2[:])
+		expires2 := time.Now().UTC().Add(30 * 24 * time.Hour)
+		_ = a.store.CreateSession(r.Context(), uuid.NewString(), user.ID, tokenHash2, expires2)
+		http.SetCookie(w, &http.Cookie{Name: "cineroom_refresh", Value: rToken, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(a.config.AppOrigin, "https://"), SameSite: http.SameSiteLaxMode, Expires: expires2})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "username": user.Username})
+}
+
 
 func (a *Application) meHandler(w http.ResponseWriter, r *http.Request) {
 	u, _ := auth.FromContext(r.Context())

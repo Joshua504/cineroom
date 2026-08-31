@@ -34,12 +34,13 @@ func CheckPassword(hash, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 func (m *Manager) SetSession(w http.ResponseWriter, user User) error {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": user.ID, "email": user.Email, "username": user.Username, "exp": time.Now().Add(7 * 24 * time.Hour).Unix(), "iat": time.Now().Unix()})
+	// Access token: short-lived JWT (15 minutes)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": user.ID, "email": user.Email, "username": user.Username, "exp": time.Now().Add(15 * time.Minute).Unix(), "iat": time.Now().Unix()})
 	signed, err := token.SignedString(m.secret)
 	if err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: signed, Path: "/", HttpOnly: true, Secure: m.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 7 * 24 * 60 * 60})
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: signed, Path: "/", HttpOnly: true, Secure: m.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 15 * 60})
 	return nil
 }
 func (m *Manager) ClearSession(w http.ResponseWriter) {

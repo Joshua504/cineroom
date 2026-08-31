@@ -40,3 +40,22 @@ docker run --rm -p 8080:8080 \
 ```
 
 Run tests with `go test ./...`.
+
+## Secrets & production
+
+Do not commit secrets or a `.env` file into the repository. The `.env.example` file documents required variables; in production, store and inject secrets using a secrets manager or platform-native secret mechanism (e.g., HashiCorp Vault, AWS Secrets Manager, GCP Secret Manager, Kubernetes Secrets, Docker Secrets, or GitHub Actions secrets).
+
+Recommended minimal production configuration:
+- APP_SECRET: a random secret of at least 32 characters (required). Rotate regularly.
+- APP_ORIGIN: the HTTPS origin (e.g. https://example.com).
+- GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET: when enabling Google sign-in.
+- SMTP_* values: when sending verification emails.
+
+Example Docker Secrets (Docker Swarm):
+- Create a secret: `echo -n "$(cat .env | grep APP_SECRET | cut -d '=' -f2-)" | docker secret create app_secret -`
+- Run container with secret: `docker service create --name cineroom --secret app_secret ...`
+
+For CI/CD pipelines, store secrets in the provider's secret storage and inject them as environment variables at deploy time. Keep a rotation and revocation plan (who can access secrets, how to rotate, and how to revoke compromised secrets).
+
+See SECURITY.md for more guidance.
+

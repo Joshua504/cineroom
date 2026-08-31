@@ -41,6 +41,7 @@ func New(cfg config.Config, logger *log.Logger) (*http.Server, *Application, err
 	mux.HandleFunc("POST /api/auth/verify", app.verifyRegistrationHandler)
 	mux.HandleFunc("POST /api/auth/login", app.loginHandler)
 	mux.HandleFunc("POST /api/auth/logout", app.logoutHandler)
+	mux.HandleFunc("POST /api/auth/refresh", app.refreshHandler)
 	mux.HandleFunc("GET /api/auth/google", app.googleStartHandler)
 	mux.HandleFunc("GET /api/auth/google/callback", app.googleCallbackHandler)
 	mux.Handle("GET /api/me", app.auth.Require(http.HandlerFunc(app.meHandler)))
@@ -59,7 +60,7 @@ func New(cfg config.Config, logger *log.Logger) (*http.Server, *Application, err
 	// Uploads and range-based video streaming can outlive a fixed whole-request
 	// timeout. ReadHeaderTimeout remains enabled, and upload size is bounded by
 	// the configured MaxUploadBytes limit.
-	return &http.Server{Addr: cfg.Addr, Handler: securityHeaders(sameOrigin(cfg.AllowedOrigins, mux)), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}, app, nil
+	return &http.Server{Addr: cfg.Addr, Handler: RateLimit(securityHeaders(sameOrigin(cfg.AllowedOrigins, mux))), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}, app, nil
 }
 
 func (a *Application) Close() error { return a.store.Close() }

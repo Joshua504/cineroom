@@ -198,6 +198,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		username TEXT NOT NULL, password_hash TEXT NOT NULL, code_hash TEXT NOT NULL,
 		expires_at DATETIME NOT NULL, created_at DATETIME NOT NULL
 	);
+	CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		token_hash TEXT NOT NULL UNIQUE, expires_at DATETIME NOT NULL, created_at DATETIME NOT NULL
+	);
 	`)
 	if err != nil {
 		return err
@@ -234,6 +238,32 @@ func (s *Store) DeletePendingRegistration(ctx context.Context, id string) error 
 	return err
 }
 
+// Session management for refresh tokens
+func (s *Store) CreateSession(ctx context.Context, id, userID, tokenHash string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)`, id, userID, tokenHash, expiresAt, time.Now().UTC())
+	return err
+}
+
+func (s *Store) SessionByTokenHash(ctx context.Context, tokenHash string) (string, string, time.Time, error) {
+	var id, userID string
+	var expires time.Time
+	err := s.db.QueryRowContext(ctx, `SELECT id,user_id,expires_at FROM sessions WHERE token_hash=?`, tokenHash).Scan(&id, &userID, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", time.Time{}, ErrNotFound
+	}
+	return id, userID, expires, err
+}
+
+func (s *Store) DeleteSessionByHash(ctx context.Context, tokenHash string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash=?`, tokenHash)
+	return err
+}
+
+func (s *Store) DeleteSessionsForUser(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, userID)
+	return err
+}
+
 func (s *Store) CreateUser(ctx context.Context, email, username, passwordHash string) (User, error) {
 	u := User{ID: uuid.NewString(), Email: email, Username: username, PasswordHash: passwordHash, CreatedAt: time.Now().UTC()}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO users(id,email,username,password_hash,created_at) VALUES(?,?,?,?,?)`, u.ID, u.Email, u.Username, u.PasswordHash, u.CreatedAt)
@@ -252,6 +282,15 @@ func (s *Store) UserByEmail(ctx context.Context, email string) (User, error) {
 func (s *Store) CreateVideo(ctx context.Context, v Video) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO videos(id,owner_id,original_name,storage_key,content_type,size_bytes,created_at) VALUES(?,?,?,?,?,?,?)`, v.ID, v.OwnerID, v.OriginalName, v.StorageKey, v.ContentType, v.SizeBytes, v.CreatedAt)
 	return err
+}
+
+func (s *Store) UserByID(ctx context.Context, id string) (User, error) {
+	var u User
+	err := s.db.QueryRowContext(ctx, `SELECT id,email,username,google_subject,password_hash,created_at FROM users WHERE id=?`, id).Scan(&u.ID, &u.Email, &u.Username, &u.GoogleSubject, &u.PasswordHash, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	return u, err
 }
 
 func (s *Store) VideoOwnedBy(ctx context.Context, videoID, userID string) (Video, error) {
